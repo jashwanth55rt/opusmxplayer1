@@ -1,0 +1,81 @@
+name: Build javagoat APK
+
+# Run on:
+#   - any push or PR (so every commit gets a buildable APK artifact)
+#   - manual click of "Run workflow" in the Actions tab (mobile-friendly)
+#   - pushing a tag like v1.0 -> also creates a GitHub Release with the APK attached
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed by softprops/action-gh-release on tag pushes
+
+jobs:
+  build:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('build.sh') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/android-sdk
+          key: android-sdk-${{ runner.os }}-platform34-buildtools34
+          restore-keys: android-sdk-${{ runner.os }}-
+
+      - name: Make build script executable
+        run: chmod +x build.sh
+
+      - name: Run build.sh (provisions SDK, signs, assembles release APK)
+        run: bash build.sh
+
+      - name: Locate built APK
+        id: apk
+        run: |
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "ERROR: APK not found at $APK_PATH" >&2
+            find app/build -name '*.apk' 2>/dev/null || true
+            exit 1
+          fi
+          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK_PATH"
+
+      - name: Upload APK as workflow artifact
+        # Available on every run under the Actions tab -> the run -> "Artifacts".
+        # Downloadable directly from a phone browser.
+        uses: actions/upload-artifact@v4
+        with:
+          name: javagoat-release-apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach APK to GitHub Release (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.path }}
+          generate_release_notes: true
