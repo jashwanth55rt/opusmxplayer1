@@ -20,6 +20,34 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
+# 0a. JDK version guard
+#
+# Android Gradle Plugin 8.2.0 requires Java 17 or newer, while Gradle 8.2 only
+# supports up to Java 20. Fail fast with a clear message if the active JDK is
+# outside the 17-20 range so the build does not die later with a cryptic error.
+# -----------------------------------------------------------------------------
+if ! command -v java >/dev/null 2>&1; then
+  echo "ERROR: 'java' was not found on PATH. Install a JDK in the 17-20 range." >&2
+  echo "       On this sandbox you can run:  mise use -g java@17" >&2
+  exit 1
+fi
+
+JAVA_RAW="$(java -version 2>&1 | head -1 | grep -oE '[0-9]+(\.[0-9]+)*' | head -1)"
+JAVA_MAJOR="${JAVA_RAW%%.*}"
+# Handle the legacy "1.8"-style version scheme.
+if [ "${JAVA_MAJOR}" = "1" ]; then
+  JAVA_MAJOR="$(echo "${JAVA_RAW}" | cut -d. -f2)"
+fi
+
+if [ -z "${JAVA_MAJOR}" ] || [ "${JAVA_MAJOR}" -lt 17 ] || [ "${JAVA_MAJOR}" -gt 20 ]; then
+  echo "ERROR: Detected Java ${JAVA_RAW:-unknown}. This build needs JDK 17-20" >&2
+  echo "       (AGP 8.2.0 requires Java 17+, Gradle 8.2 supports up to Java 20)." >&2
+  echo "       On this sandbox you can run:  mise use -g java@17" >&2
+  exit 1
+fi
+echo ">>> Using Java ${JAVA_RAW} (major ${JAVA_MAJOR}) - OK"
+
+# -----------------------------------------------------------------------------
 # 0. Project identity / paths
 # -----------------------------------------------------------------------------
 PROJECT_ROOT="$(pwd)"
